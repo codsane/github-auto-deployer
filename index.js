@@ -67,6 +67,38 @@ function getConfig(configObj, configName){
     return DEFAULT_CONFIG[configName]
 }
 
+function attemptDeploy(repo) {
+    // Read deployment repository configuration
+    const config = repoConfig(DEPLOYMENT_FILE, repo);
+
+    if (config !== undefined){
+        // We should run deployment scripts
+        const directory = getConfig(config, "directory")[0];
+        if (directory === undefined){
+            console.log('Directory is not configured for %s repository.', repo);
+            return
+        }
+        
+        const deploymentScriptName = getConfig(config, "script")[0];
+        const getChanges = getConfig(config, "get_changes");
+        
+        console.log('Deploying %s...', repo);
+
+        const preDeploymentCommands = [
+            `cd ${directory}`,  // Go to repository directory
+            ...getChanges  // Get latest changes from GitHub
+        ];
+        shell.exec(preDeploymentCommands.join(" && "));  // Run pre-deployment commands
+
+        const runDeploymentScript = `cd ${directory} && bash ${deploymentScriptName}`;
+        shell.exec(runDeploymentScript);  // Run deployment script
+
+        console.log('Deployment of %s is done.', repo);
+    } else{
+        console.log('No configuration for %s repository.', repo);
+    }
+}
+
 
 handler.on('pull_request', function (event) {
     const repository = event.payload.repository.name;
@@ -76,35 +108,12 @@ handler.on('pull_request', function (event) {
     console.log('Received a Pull Request for %s to %s', repository, action);
     // The action `closed` on pull_request event means it is either merged or declined
     if (action === 'closed' && isMerged) {
-        // Read deployment repository configuration
-        const config = repoConfig(DEPLOYMENT_FILE, repository);
-
-        if (config !== undefined){
-            // We should run deployment scripts
-            const directory = getConfig(config, "directory")[0];
-            if (directory === undefined){
-                console.log('Directory is not configured for %s repository.', repository);
-                return
-            }
-            
-            const deploymentScriptName = getConfig(config, "script")[0];
-            const getChanges = getConfig(config, "get_changes");
-            
-            console.log('Deploying %s...', repository);
-
-            const preDeploymentCommands = [
-                `cd ${directory}`,  // Go to repository directory
-                ...getChanges  // Get latest changes from GitHub
-            ];
-            shell.exec(preDeploymentCommands.join(" && "));  // Run pre-deployment commands
-
-            const runDeploymentScript = `cd ${directory} && bash ${deploymentScriptName}`;
-            shell.exec(runDeploymentScript);  // Run deployment script
-
-            console.log('Deployment of %s is done.', repository);
-        }
-        else{
-            console.log('No configuration for %s repository.', repository);
-        }
+        attemptDeploy(repository);
     }
+});
+
+handler.on('push', function (event) {
+    const repository = event.payload.repository.name;
+    console.log('Received a Push for %s', repository);
+    attemptDeploy(repository);
 });
